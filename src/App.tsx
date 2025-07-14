@@ -7,7 +7,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen flex">
-      {/* Left panel */}
       <div className="flex flex-col justify-center items-center w-3/5 bg-gradient-to-b from-blue-600 to-blue-400 text-white p-12">
         <h1 className="text-4xl font-bold mb-4">ProxymHR</h1>
         <p className="text-sm max-w-xs text-center">
@@ -15,7 +14,7 @@ export default function App() {
         </p>
       </div>
 
-      {/* Right panel - login or signup form */}
+      
       <div className="flex flex-col justify-center w-2/5 p-8">
         <div className="bg-white p-8 rounded-lg shadow-md w-full max-w-md mx-auto">
           {page === 'login' ? <LoginPage /> : <SignupPage />}
