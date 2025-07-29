@@ -1,10 +1,17 @@
-import { useState } from 'react'
-import LoginPage from './pages/LoginPage'
-import SignupPage from './pages/SignupPage'
+// App.tsx
+import { Routes, Route, Navigate, NavLink , useNavigate, Link} from 'react-router-dom';
+import LoginPage from './components/auth/login/LoginPage';
+import SignupPage from './components/auth/signup/SignupPage';
+import ClientInterface from './components/pages/Client/Clientinterface';
+import LoginPageWrapper from './components/auth/login/LoginPageWrapper';
+import SignupPageWrapper from './components/auth/signup/SignupPageWrapper';
+import HrInterface from './components/pages/HR/HRinterface';
+import Candidates from './components/pages/HR/Candidates';
+import Suivie from './components/pages/Client/suivie';
+import UploadCV from './components/pages/Client/UploadCV';
+import { CandidatesProvider } from './contexts/CandidatesContext';
 
-export default function App() {
-  const [page, setPage] = useState<'login' | 'signup'>('login')
-
+function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen flex">
       <div className="flex flex-col justify-center items-center w-3/5 bg-gradient-to-b from-blue-600 to-blue-400 text-white p-12">
@@ -14,35 +21,41 @@ export default function App() {
         </p>
       </div>
 
-      
       <div className="flex flex-col justify-center w-2/5 p-8">
         <div className="bg-white p-8 rounded-lg shadow-md w-full max-w-md mx-auto">
-          {page === 'login' ? <LoginPage /> : <SignupPage />}
-          <div className="mt-4 text-center">
-            {page === 'login' ? (
-              <p>
-                Don't have an account?{' '}
-                <button
-                  className="text-blue-600 hover:underline"
-                  onClick={() => setPage('signup')}
-                >
-                  Sign up
-                </button>
-              </p>
-            ) : (
-              <p>
-                Already have an account?{' '}
-                <button
-                  className="text-blue-600 hover:underline"
-                  onClick={() => setPage('login')}
-                >
-                  Log in
-                </button>
-              </p>
-            )}
-          </div>
+          {children}
         </div>
       </div>
     </div>
-  )
+  );
+}
+export default function App() {
+  return (
+    <CandidatesProvider>
+      <Routes>
+        <Route
+          path="/login" 
+          element={
+            <AuthLayout>
+              <LoginPageWrapper />
+            </AuthLayout>
+          }
+        />
+        <Route
+          path="/signup"
+          element={
+            <AuthLayout>
+              <SignupPageWrapper />
+            </AuthLayout>
+          }
+        />
+        {/* redirect lel client */}
+        <Route path="/client" element={<ClientInterface />} />
+        <Route path='/candidates' element={<Candidates/>}/>
+        <Route  path='/HRinterface' element={<HrInterface />}/>
+        <Route path='/UploadCV' element={<UploadCV/>} />
+        <Route path='/suivie' element={<Suivie/>} />
+      </Routes>
+    </CandidatesProvider>
+  );
 }

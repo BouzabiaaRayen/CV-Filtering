@@ -1,10 +1,27 @@
 import { useState } from 'react'
+import { createUserWithEmailAndPassword } from "firebase/auth";
+import { auth } from '../../firebase/firebase';
 
 export default function SignupPage() {
   const [userType, setUserType] = useState<'Client' | 'HR'>('Client')
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+
+
+
+  const handleSignup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    createUserWithEmailAndPassword(auth, email, password)
+      .then((userCredential) => {
+        const user = userCredential.user;
+        console.log('Signup successful:', user);
+      })
+      .catch((error) => {
+        console.error('Signup failed:', error);
+      });
+    
+  }
 
   return (
     <div className="flex flex-col justify-center w-full max-w-md mx-auto">
@@ -30,7 +47,7 @@ export default function SignupPage() {
         </button>
       </div>
 
-      <form className="space-y-4" onSubmit={e => e.preventDefault()}>
+      <form className="space-y-4" onSubmit={handleSignup}>
         <div className="relative">
           <span className="absolute inset-y-0 left-3 flex items-center text-gray-400">
           </span>
