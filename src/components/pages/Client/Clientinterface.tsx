@@ -1,34 +1,136 @@
-import { useState } from "react";
-import { Link ,Navigate,useNavigate} from "react-router-dom";
-
+import { useState, useEffect } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { saveClientData, uploadProfileImage, getClientData } from "../../firebase/database";
+import { getAuth, signOut } from "firebase/auth";
 
 const ClientInterface = () => {
+  const navigate = useNavigate();
+  const auth = getAuth();
+
+  // Form states
   const [fullName, setFullName] = useState('');
-  const [email, setEmail] = useState('rayenbouzabiaaa@gmail.com');
+  const [email, setEmail] = useState('');
   const [gender, setGender] = useState('');
   const [dateOfBirth, setDateOfBirth] = useState('');
   const [profileImage, setProfileImage] = useState<File | null>(null);
-  const navigate = useNavigate();
+  const [profileImageUrl, setProfileImageUrl] = useState<string>('');
 
+  // UI states
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
 
+  // Load existing client data on component mount
+  useEffect(() => {
+    const loadClientData = async () => {
+      if (!auth.currentUser) {
+        navigate("/login");
+        return;
+      }
 
-  type Props = { children?: React.ReactNode };
+      try {
+        const result = await getClientData();
+        if (result.success && result.data) {
+          const data = result.data;
+          setFullName(data.fullName || '');
+          setEmail(data.email || '');
+          setGender(data.gender || '');
+          setDateOfBirth(data.dateOfBirth || '');
+          setProfileImageUrl(data.profileImageUrl || '');
+        }
+      } catch (err) {
+        console.error('Error loading client data:', err);
+      }
+    };
 
-  
+    loadClientData();
+  }, [auth.currentUser, navigate]);
+
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      setProfileImage(e.target.files[0]);
+      const file = e.target.files[0];
+      
+      // Validate file size (500KB = 500 * 1024 bytes)
+      if (file.size > 500 * 1024) {
+        setError("Image size must be less than 500KB");
+        return;
+      }
+
+      // Validate file type
+      if (!file.type.startsWith('image/')) {
+        setError("Please select a valid image file");
+        return;
+      }
+
+      setProfileImage(file);
+      setError('');
     }
   };
 
-  const handleLogout = () => {
-    const navigate = useNavigate();
-    alert("Logged out!");
-    navigate("/login");
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      navigate("/login");
+    } catch (error) {
+      console.error("Error signing out:", error);
+      setError("Failed to log out");
+    }
   };
 
-  const handleSave = () => {
-    alert("Profile saved!");
+  const handleSave = async () => {
+    if (!auth.currentUser) {
+      setError("You must be logged in to save changes");
+      return;
+    }
+
+    // Basic validation
+    if (!fullName.trim() || !email.trim()) {
+      setError("Full name and email are required");
+      return;
+    }
+
+    setError('');
+    setSuccess('');
+
+    try {
+      let imageUrl = profileImageUrl;
+      
+      // Upload new profile image if selected
+      if (profileImage) {
+        try {
+          imageUrl = await uploadProfileImage(profileImage, auth.currentUser.uid);
+          setProfileImageUrl(imageUrl);
+        } catch (uploadError) {
+          console.error("Error uploading image:", uploadError);
+          setError("Failed to upload profile image");
+          return;
+        }
+      }
+
+      // Save client data
+      const clientData = {
+        fullName: fullName.trim(),
+        email: email.trim(),
+        gender,
+        dateOfBirth,
+        profileImageUrl: imageUrl
+      };
+
+      console.log("Saving client data:", { ...clientData, userId: auth.currentUser?.uid, updatedAt: new Date().toISOString() });
+
+      const result = await saveClientData(clientData);
+      
+      if (result.success) {
+        setSuccess("Profile saved successfully!");
+        setProfileImage(null); // Clear the selected file
+        // Clear success message after 3 seconds
+        setTimeout(() => setSuccess(''), 3000);
+      } else {
+        setError(result.message || "Failed to save profile");
+      }
+    } catch (error) {
+      console.error("Error saving client data:", error);
+      setError("An unexpected error occurred while saving");
+    }
   };
 
   return (
@@ -52,6 +154,20 @@ const ClientInterface = () => {
       <main className="flex-1 p-10">
         <h1 className="text-2xl font-bold mb-6  mt-8 bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-400 transition ">My Profile</h1>
 
+        {/* Error Message */}
+        {error && (
+          <div className="mb-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded">
+            {error}
+          </div>
+        )}
+
+        {/* Success Message */}
+        {success && (
+          <div className="mb-4 p-4 bg-green-100 border border-green-400 text-green-700 rounded">
+            {success}
+          </div>
+        )}
+
         <div className="mb-6">
           <h2 className="text-xl font-semibold mb-4">Profile Photo</h2>
           <div className="flex items-center gap-4">
@@ -59,10 +175,10 @@ const ClientInterface = () => {
               src={
                 profileImage
                   ? URL.createObjectURL(profileImage)
-                  : "https://via.placeholder.com/100"
+                  : profileImageUrl || "https://via.placeholder.com/100"
               }
               alt="Profile"
-              className="w-24 h-24 rounded-full object-cover"
+              className="w-24 h-24 rounded-full object-cover border-2 border-gray-200"
             />
             <div>
               <input

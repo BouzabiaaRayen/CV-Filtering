@@ -107,15 +107,62 @@ const UploadCV = () => {
         </div>
 
         <button
-          onClick={() => {
+          onClick={async () => {
             if (selectedFile) {
-              alert(`Uploading file: ${selectedFile.name}`);
-              // Add your upload logic here
+              try {
+                const { storage } = await import("../../../components/firebase/firebase");
+                const { ref, uploadBytesResumable, getDownloadURL } = await import("firebase/storage");
+
+                const storageRef = ref(storage, `cvs/${selectedFile.name}`);
+                const uploadTask = uploadBytesResumable(storageRef, selectedFile);
+
+                uploadTask.on(
+                  "state_changed",
+                  (snapshot) => {
+                    // Progress function (optional)
+                    const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+                    console.log(`Upload is ${progress}% done`);
+                  },
+                  (error) => {
+                    // Error function
+                    console.error("Upload failed:", error);
+                    alert("Upload failed. Please try again.");
+                  },
+                  () => {
+                    // Complete function
+                getDownloadURL(uploadTask.snapshot.ref).then(async (downloadURL) => {
+                  console.log("File available at", downloadURL);
+                  alert(`Upload successful! File URL: ${downloadURL}`);
+
+                  // Add candidate with CV URL
+                  try {
+                    // Use the addCandidate function from context hook
+                    await addCandidate({
+                      name: "New Candidate",
+                      role: "Unknown",
+                      department: "Unknown",
+                      status: "Pending",
+                      email: "unknown@example.com",
+                      phone: "0000000000",
+                      avatar: downloadURL
+                    });
+                    alert("Candidate added successfully.");
+                  } catch (error) {
+                    console.error("Error adding candidate:", error);
+                    alert("Failed to add candidate.");
+                  }
+                });
+                  }
+                );
+              } catch (error) {
+                console.error("Error uploading file:", error);
+                alert("Error uploading file. Please try again.");
+              }
             } else {
               alert("Please select a file first.");
             }
           }}
-          className="mt-6 bg-blue-600 text-white px-6 py-3 rounded hover:bg-green-700 transition"
+          className="mt-6 bg-blue-600 text-white px-6 py-3 rounded hover:bg-blue-700 transition"
         >
           UPLOAD
         </button>

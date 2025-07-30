@@ -1,10 +1,8 @@
 // App.tsx
-import { Routes, Route, Navigate, NavLink , useNavigate, Link} from 'react-router-dom';
-import LoginPage from './components/auth/login/LoginPage';
-import SignupPage from './components/auth/signup/SignupPage';
-import ClientInterface from './components/pages/Client/Clientinterface';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import LoginPageWrapper from './components/auth/login/LoginPageWrapper';
 import SignupPageWrapper from './components/auth/signup/SignupPageWrapper';
+import ClientInterface from './components/pages/Client/Clientinterface';
 import HrInterface from './components/pages/HR/HRinterface';
 import Candidates from './components/pages/HR/Candidates';
 import Suivie from './components/pages/Client/suivie';
@@ -55,6 +53,7 @@ export default function App() {
         <Route  path='/HRinterface' element={<HrInterface />}/>
         <Route path='/UploadCV' element={<UploadCV/>} />
         <Route path='/suivie' element={<Suivie/>} />
+        <Route path="/" element={<Navigate to="/login" replace />} />
       </Routes>
     </CandidatesProvider>
   );
