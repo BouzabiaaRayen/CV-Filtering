@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useState, ReactNode } from
 import { collection, addDoc, onSnapshot, query, QuerySnapshot, DocumentData } from "firebase/firestore";
 import { db } from "../components/firebase/firebase";
 
-type Candidate = {
+export type Candidate = {
   id: string;
   name: string;
   role: string;
@@ -10,7 +10,11 @@ type Candidate = {
   status: string;
   email: string;
   phone: string;
-  avatar: string;
+  avatar?: string; // image file name in Firebase Storage
+  skills?: string[];
+  experience?: string;
+  education?: string;
+  rawText?: string;
 };
 
 type CandidatesContextType = {
@@ -34,18 +38,25 @@ type CandidatesProviderProps = {
 
 export const CandidatesProvider = ({ children }: CandidatesProviderProps) => {
   const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const q = query(collection(db, "candidates"));
-    const unsubscribe = onSnapshot(q, (querySnapshot: QuerySnapshot<DocumentData>) => {
-      const candidatesData: Candidate[] = [];
-      querySnapshot.forEach((doc) => {
-        candidatesData.push({ id: doc.id, ...(doc.data() as Omit<Candidate, "id">) });
-      });
-      setCandidates(candidatesData);
-    }, (error) => {
-      console.error("Firestore onSnapshot error: ", error);
-    });
+    const unsubscribe = onSnapshot(
+      q,
+      (querySnapshot: QuerySnapshot<DocumentData>) => {
+        const candidatesData: Candidate[] = [];
+        querySnapshot.forEach((doc) => {
+          candidatesData.push({ id: doc.id, ...(doc.data() as Omit<Candidate, "id">) });
+        });
+        setCandidates(candidatesData);
+        setLoading(false);
+      },
+      (error) => {
+        console.error("Firestore onSnapshot error: ", error);
+        setLoading(false);
+      }
+    );
 
     return () => unsubscribe();
   }, []);
@@ -57,6 +68,8 @@ export const CandidatesProvider = ({ children }: CandidatesProviderProps) => {
       console.error("Error adding candidate: ", error);
     }
   };
+
+  if (loading) return <p>Loading candidates...</p>;
 
   return (
     <CandidatesContext.Provider value={{ candidates, addCandidate }}>

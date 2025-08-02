@@ -1,16 +1,16 @@
 import { useState, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useCandidates } from "../../../contexts/CandidatesContext";
+import  CVParser from "../../../scripts/CVParser";
 
 const UploadCV = () => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const navigate = useNavigate();
 
-  // Using useCandidates hook
-  const { candidates, addCandidate } = useCandidates();
+  const { addCandidate } = useCandidates();
 
   const HandleLogout = () => {
-    alert("logout succesfully");
+    alert("Logout successfully");
     navigate("/login");
   };
 
@@ -32,6 +32,69 @@ const UploadCV = () => {
     event.preventDefault();
   };
 
+  const handleUpload = async () => {
+    if (!selectedFile) {
+      alert("Please select a file first.");
+      return;
+    }
+
+    try {
+      const { storage } = await import("../../../components/firebase/firebase");
+      const { ref, uploadBytesResumable, getDownloadURL } = await import("firebase/storage");
+
+      // 1. Upload file to Firebase Storage
+      const fileName = `${Date.now()}_${selectedFile.name}`;
+      const storageRef = ref(storage, `cvs/${fileName}`);
+      const uploadTask = uploadBytesResumable(storageRef, selectedFile);
+
+      uploadTask.on(
+        "state_changed",
+        (snapshot) => {
+          const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+          console.log(`Upload is ${progress}% done`);
+        },
+        (error) => {
+          console.error("Upload failed:", error);
+          alert("Upload failed. Please try again.");
+        },
+        async () => {
+          const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+          console.log("File available at", downloadURL);
+
+          // 2. Parse the file using CVParser
+          try {
+            const extractedInfo = await CVParser.parseCV(selectedFile);
+            console.log("Extracted info:", extractedInfo);
+
+            // 3. Add candidate using context
+            await addCandidate({
+              name: extractedInfo.name ,
+              role: extractedInfo.role  ,
+              department: extractedInfo.department  ,
+              status: "Pending",
+              email: extractedInfo.email ,
+              phone: extractedInfo.phone ,
+              avatar: downloadURL,
+              skills: extractedInfo.skills || [],
+              experience: extractedInfo.experience ,
+              education: extractedInfo.education ,
+              rawText: extractedInfo.rawText ,
+            });
+
+            alert("CV uploaded and candidate added successfully!");
+            setSelectedFile(null);
+          } catch (parseError) {
+            console.error("CV parsing failed:", parseError);
+            alert("Failed to extract info from CV.");
+          }
+        }
+      );
+    } catch (error) {
+      console.error("Upload error:", error);
+      alert("An error occurred during upload.");
+    }
+  };
+
   return (
     <div className="flex min-h-screen bg-white">
       <aside className="w-60 bg-gray-50 p-6 border-r">
@@ -42,9 +105,7 @@ const UploadCV = () => {
               Profile
             </Link>
           </div>
-          <div className="text-gray-600 hover:underline hover:text-blue-600 font-semibold">
-            Upload CV
-          </div>
+          <div className="text-blue-600 font-semibold underline">Upload CV</div>
           <div className="text-gray-600 hover:text-blue-600 font-semibold">
             <Link to="/suivie" className="hover:underline">
               Suivie
@@ -53,19 +114,20 @@ const UploadCV = () => {
         </nav>
         <button
           onClick={HandleLogout}
-          className="hover:underline text-red-500 mt-20 absolute bottom-6 left-6"
+          className="hover:underline text-red-500 absolute bottom-6 left-6"
         >
           Log Out
         </button>
       </aside>
 
       <main className="flex-1 p-10">
-        <h1 className="text-xl font-semibold mb-6">Upload you're CV</h1>
+        <h1 className="text-xl font-semibold mb-6">Upload your CV</h1>
         <p className="mb-2 font-medium text-center">Select or drop the file</p>
 
         <input
           type="file"
           id="fileInput"
+          accept=".pdf,.doc,.docx"
           style={{ display: "none" }}
           onChange={onFileChange}
         />
@@ -90,8 +152,8 @@ const UploadCV = () => {
               d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 12v8m0-8l-4 4m4-4l4 4m-4-12v8"
             />
           </svg>
-          <p className="text-gray-600 mb-1">Select a file or drop and drop here</p>
-          <p className="text-gray-400 text-sm mb-4">file size no more than 50MB</p>
+          <p className="text-gray-600 mb-1">Select a file or drag and drop here</p>
+          <p className="text-gray-400 text-sm mb-4">File size max: 50MB</p>
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -107,67 +169,14 @@ const UploadCV = () => {
         </div>
 
         <button
-          onClick={async () => {
-            if (selectedFile) {
-              try {
-                const { storage } = await import("../../../components/firebase/firebase");
-                const { ref, uploadBytesResumable, getDownloadURL } = await import("firebase/storage");
-
-                const storageRef = ref(storage, `cvs/${selectedFile.name}`);
-                const uploadTask = uploadBytesResumable(storageRef, selectedFile);
-
-                uploadTask.on(
-                  "state_changed",
-                  (snapshot) => {
-                    // Progress function (optional)
-                    const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-                    console.log(`Upload is ${progress}% done`);
-                  },
-                  (error) => {
-                    // Error function
-                    console.error("Upload failed:", error);
-                    alert("Upload failed. Please try again.");
-                  },
-                  () => {
-                    // Complete function
-                getDownloadURL(uploadTask.snapshot.ref).then(async (downloadURL) => {
-                  console.log("File available at", downloadURL);
-                  alert(`Upload successful! File URL: ${downloadURL}`);
-
-                  // Add candidate with CV URL
-                  try {
-                    // Use the addCandidate function from context hook
-                    await addCandidate({
-                      name: "New Candidate",
-                      role: "Unknown",
-                      department: "Unknown",
-                      status: "Pending",
-                      email: "unknown@example.com",
-                      phone: "0000000000",
-                      avatar: downloadURL
-                    });
-                    alert("Candidate added successfully.");
-                  } catch (error) {
-                    console.error("Error adding candidate:", error);
-                    alert("Failed to add candidate.");
-                  }
-                });
-                  }
-                );
-              } catch (error) {
-                console.error("Error uploading file:", error);
-                alert("Error uploading file. Please try again.");
-              }
-            } else {
-              alert("Please select a file first.");
-            }
-          }}
+          onClick={handleUpload}
           className="mt-6 bg-blue-600 text-white px-6 py-3 rounded hover:bg-blue-700 transition"
         >
-          UPLOAD
+          UPLOAD & EXTRACT
         </button>
       </main>
     </div>
   );
 };
+
 export default UploadCV;

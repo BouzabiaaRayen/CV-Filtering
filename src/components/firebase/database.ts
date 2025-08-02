@@ -12,7 +12,7 @@ function logAuthState() {
     user.getIdToken(true).then(token => {
       console.log("User ID token:", token);
     }).catch(err => {
-      console.error("Error getting ID token:", err);
+      console.error("Error getting IDa token:", err);
     });
   } else {
     console.log("No user is currently logged in.");
