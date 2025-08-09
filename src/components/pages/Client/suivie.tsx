@@ -1,29 +1,95 @@
-import { useState } from "react";
-import { Link } from "react-router-dom";
-import UploadCV from "./UploadCV";
+import { Link, useNavigate } from "react-router-dom";
+import illustration from "../../../assets/suivie.png";
 
+const Suivie: React.FC = () => {
+  const navigate = useNavigate();
 
+  const handleLogout = () => {
+    alert("Logout successfully");
+    navigate("/login");
+  };
 
+  return (
+    <div className="flex min-h-screen bg-white">
+      <aside className="w-60 bg-gray-50 p-6 border-r relative">
+        <h2 className="text-blue-600 font-bold text-2xl">ProxymHR</h2>
+        <nav className="mt-10 space-y-4">
+          <div className="font-semibold text-black">
+            <Link to="/client" className="hover:underline">
+              Profile
+            </Link>
+          </div>
+          <div className="text-gray-600 hover:text-blue-600 font-semibold">
+            <Link to="/UploadCV" className="hover:underline">
+              Upload CV
+            </Link>
+          </div>
+          <div className="text-blue-600 font-semibold underline">Suivie</div>
+        </nav>
+        <button
+          onClick={handleLogout}
+          className="hover:underline text-red-500 absolute bottom-6 left-6"
+        >
+          Log Out
+        </button>
+      </aside>
 
-const Suivie = () => {
-    const HandleLogout=()=>{
-        alert("logout succefully");
-    }
-type Props = { children?: React.ReactNode };
+      <main className="flex-1 p-10">
+        <h1 className="text-gray-700 text-sm font-medium pb-4 border-b">
+          CV Approved
+        </h1>
 
-    return(
-        <div className="flex min-h-screen bg-white">
-        <aside className="w-60 bg-gray-50 p-6 border-r">
-            <h2 className=" text-blue-600 font-bold text-2xl  ">ProxymHR</h2>
-            <nav className="mt-10 space-y-4">
-                <div className="font-semibold text-black"><Link to="/client" className="hover:underline">Profile</Link></div>
-                <div className="text-gray-600  hover:underline hover:text-blue-600 font-semibold" ><Link to='/UploadCV'>Upload CV</Link></div>
-                <div className="text-gray-600  hover:underline hover:text-blue-600 font-semibold" >Suivie</div>
-            </nav>
-            <button onClick={HandleLogout} className="hover:underline text-red-500 mt-20 position: absolute bottom-6 left">Log Out</button>
-        </aside>
+        <section className="mt-10">
+          <div className="flex flex-col lg:flex-row items-start lg:items-center gap-10">
+            <img
+              src={illustration}
+              alt="Working illustration"
+              className="w-[420px] h-[420px] object-contain"
+            />
+
+            <div className="max-w-2xl text-[13px] text-black leading-6">
+              <p className="mb-3">Dear Bouzablaa Rayen,</p>
+              <p className="mb-2">
+                We are pleased to inform you that your resume has been successfully
+                reviewed and approved by our recruitment team for the position of
+                Trainee at Proxym.
+              </p>
+              <p className="mb-2">
+                Your qualifications and experience align well with what we're
+                looking for, and we are excited to move forward with the next
+                steps of the selection process.
+              </p>
+              <p className="mb-2">
+                Our HR team will contact you shortly to schedule an interview and
+                provide further details.
+              </p>
+              <p className="mb-2">
+                If you have any questions in the meantime, feel free to reach out
+                to us at rh@proxym-it.com.
+              </p>
+              <p className="mb-2">
+                Thank you for your interest in joining Proxym. We look forward to
+                speaking with you soon!
+              </p>
+              <p className="mt-6">Best regards,</p>
+              <p>Bouzablaa Rayen</p>
+              <p>HR Department</p>
+              <p>Proxy-Group</p>
+            </div>
+          </div>
+
+          <div className="mt-10 flex justify-end">
+            <button
+              onClick={() => navigate(-1)}
+              className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700"
+            >
+              Return
+            </button>
+          </div>
+        </section>
+      </main>
     </div>
-    )
-}
+  );
+};
 
 export default Suivie;

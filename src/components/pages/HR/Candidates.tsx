@@ -308,68 +308,37 @@ export default function Candidates() {
   // Helper function to render avatar
   const renderAvatar = (candidate: Candidate) => {
     const isLoading = imageLoading.has(candidate.id);
-    const hasImage = imageURLs[candidate.id] && !imageErrors.has(candidate.id);
-    const hasError = imageErrors.has(candidate.id);
-    const currentRetries = retryCount[candidate.id] || 0;
-    
+    const hasImageUrl = Boolean(imageURLs[candidate.id]);
+
     if (isLoading) {
-      // Show loading spinner
       return (
         <div className="w-12 h-12 rounded-full bg-gray-200 flex items-center justify-center border-2 border-gray-200">
           <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500"></div>
         </div>
       );
     }
-    
-    if (hasImage) {
+
+    if (hasImageUrl) {
       return (
         <img
           src={imageURLs[candidate.id]}
           alt={candidate.name}
           className="w-12 h-12 rounded-full object-cover border-2 border-gray-200"
           onError={(e) => {
-            console.log(`Image failed to load for candidate ${candidate.id}, falling back to initials`);
-            setImageErrors(prev => new Set([...prev, candidate.id]));
-            // Clear the src to prevent repeated error events
-            e.currentTarget.src = '';
-          }}
-          onLoad={() => {
-            // Remove from errors if image loads successfully
-            setImageErrors(prev => {
-              const newSet = new Set(prev);
-              newSet.delete(candidate.id);
-              return newSet;
-            });
+            console.log(`Image failed to load for candidate ${candidate.id}, using fallback avatar`);
+            e.currentTarget.onerror = null; // prevent infinite loop
+            e.currentTarget.src = '/fallback-avatar.png';
           }}
         />
       );
-    } else if (hasError && currentRetries < 2) {
-      // Show retry button if image failed to load and retries are available
-      return (
-        <div className="relative group">
-          <div className="w-12 h-12 rounded-full bg-gray-300 flex items-center justify-center border-2 border-gray-200">
-            <div className="text-gray-500 text-xs text-center">
-              <div>⚠️</div>
-              <div className="text-[8px]">Retry</div>
-            </div>
-          </div>
-          <button
-            onClick={() => retryImageLoad(candidate.id)}
-            className="absolute inset-0 w-12 h-12 rounded-full bg-black bg-opacity-50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
-            title="Retry loading image"
-          >
-            <div className="text-white text-xs">↻</div>
-          </button>
-        </div>
-      );
-    } else {
-      // Show initials as fallback
-      return (
-        <div className="w-12 h-12 rounded-full bg-blue-500 text-white flex items-center justify-center font-semibold text-sm border-2 border-gray-200">
-          {getInitials(candidate.name)}
-        </div>
-      );
     }
+
+    // No image URL available: show placeholder initials
+    return (
+      <div className="w-12 h-12 rounded-full bg-blue-500 text-white flex items-center justify-center font-semibold text-sm border-2 border-gray-200">
+        {getInitials(candidate.name)}
+      </div>
+    );
   };
 
   return (
