@@ -1,5 +1,6 @@
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth } from '../../firebase/firebase';
+import { getUserType } from '../../firebase/database';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
@@ -7,80 +8,126 @@ export default function LoginPage() {
   const [userType, setUserType] = useState<'Client' | 'HR'>('Client');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    signInWithEmailAndPassword(auth, email, password)
-      .then((userCredential) => {
-        const user = userCredential.user;
-        console.log('Login successful:', user);
+    setError('');
+    setLoading(true);
+
+    try {
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const user = userCredential.user;
+      
+      console.log('Login successful:', user);
+      console.log('User ID:', user.uid);
+      
+      // Check user type from database
+      const userTypeResult = await getUserType(user.uid);
+      if (!userTypeResult.success) {
+        throw new Error(userTypeResult.message || 'Failed to get user type');
+      }
+      
+      if (!userTypeResult.data) {
+        throw new Error('User type not found. Please contact support.');
+      }
+      
+      const storedUserType = userTypeResult.data.userType;
+      
+      // Check if user type matches
+      if (storedUserType !== userType) {
+        throw new Error(`This account is registered as ${storedUserType}. Please select the correct user type.`);
+      }
+      
+      // Wait a moment for authentication to fully propagate
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // Verify user is still authenticated
+      if (auth.currentUser) {
         localStorage.setItem('userType', userType);
         localStorage.setItem('user', JSON.stringify(user));
+        
         if (userType === 'Client') {
           navigate('/client');
         } else if (userType === 'HR') {
           navigate('/HRinterface');
         }
-      })
-      .catch((error) => {
-        console.error('Login failed:', error);
-      });
+      } else {
+        setError('Authentication failed. Please try again.');
+      }
+    } catch (error: any) {
+      console.error('Login failed:', error);
+      setError(error.message || 'Login failed. Please check your credentials.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
-    <div className="max-w-md mx-auto mt-20 p-6 bg-white rounded-lg shadow-md">
-      <h1 className="text-3xl font-bold mb-2">Hello!</h1>
-      <p className="text-gray-600 mb-6">Sign Up to Get Started</p>
-      <div className="flex mb-6">
+    <div className="flex flex-col justify-center w-full max-w-md mx-auto">
+      <h1 className="text-3xl font-bold mb-1">Welcome Back!</h1>
+      <p className="text-gray-500 mb-6">Sign in to your account</p>
+
+      <div className="flex space-x-4 mb-6">
         <button
-          type="button"
-          className={`flex-1 py-2 rounded-l-lg border border-gray-300 text-center font-semibold ${
-            userType === 'Client' ? 'bg-blue-400 text-white' : 'bg-gray-200 text-gray-700'
+          className={`flex-1 py-2 rounded-lg text-sm font-semibold ${
+            userType === 'Client' ? 'bg-blue-200 text-blue-800' : 'bg-gray-200 text-gray-600'
           }`}
           onClick={() => setUserType('Client')}
         >
           Client
         </button>
         <button
-          type="button"
-          className={`flex-1 py-2 rounded-r-lg border border-gray-300 text-center font-semibold ${
-            userType === 'HR' ? 'bg-gray-400 text-white' : 'bg-gray-200 text-gray-700'
+          className={`flex-1 py-2 rounded-lg text-sm font-semibold ${
+            userType === 'HR' ? 'bg-blue-200 text-blue-800' : 'bg-gray-200 text-gray-600'
           }`}
           onClick={() => setUserType('HR')}
         >
           HR
         </button>
       </div>
-      <form onSubmit={handleLogin}>
-        <div className="mb-4">
+
+      <form onSubmit={handleLogin} className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Email
+          </label>
           <input
             type="email"
-            placeholder="Email Address"
-            className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
+            className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
             required
           />
         </div>
-        <div className="mb-6">
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Password
+          </label>
           <input
             type="password"
-            placeholder="Password"
-            className="w-full px-4 py-2 border border-gray-300 rounded-md bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-400"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
+            className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
             required
           />
         </div>
+
+        {error && (
+          <div className="text-red-500 text-sm">{error}</div>
+        )}
+
         <button
           type="submit"
-          className="w-full bg-blue-600 text-white py-3 rounded-md font-semibold hover:bg-blue-700 transition-colors"
+          disabled={loading}
+          className="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          Login
+          {loading ? 'Signing in...' : 'Sign In'}
         </button>
       </form>
-      
     </div>
   );
 }

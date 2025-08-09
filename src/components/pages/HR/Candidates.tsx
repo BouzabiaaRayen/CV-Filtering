@@ -1,10 +1,13 @@
 import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Mail, Phone } from "lucide-react";
-import { FaChevronDown, FaChevronUp } from "react-icons/fa";
+import { Mail, Phone, ChevronUp, ChevronDown } from "lucide-react";
 import { useCandidates, Candidate } from "../../../contexts/CandidatesContext";
 import { getDownloadURL, ref } from "firebase/storage";
 import { storage } from "../../firebase/firebase";
+import { getUserProfileImage } from "../../firebase/database";
+import { getAuth } from "firebase/auth";
+import { doc, getDoc } from "firebase/firestore";
+import { db } from "../../firebase/firebase";
 
 const filterOptions = {
   degree: ["All", "Engineering", "Business", "Arts", "Design"],
@@ -24,37 +27,207 @@ const initialFilters = {
 
 export default function Candidates() {
   const navigate = useNavigate();
-  const { candidates } = useCandidates();
+  const { candidates, updateCandidate } = useCandidates();
 
   const [filters, setFilters] = useState(initialFilters);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [candidateStatusMap, setCandidateStatusMap] = useState<{ [id: string]: string }>({});
   const [imageURLs, setImageURLs] = useState<{ [id: string]: string }>({});
+  const [imageErrors, setImageErrors] = useState<Set<string>>(new Set());
+  const [imageLoading, setImageLoading] = useState<Set<string>>(new Set());
+  const [retryCount, setRetryCount] = useState<{ [id: string]: number }>({});
+
+  // Debug logging
+  useEffect(() => {
+    console.log("Candidates component: Candidates loaded:", candidates.length);
+    console.log("Candidates component: Candidates data:", candidates);
+  }, [candidates]);
+
+  // Helper function to validate image URL
+  const validateImageUrl = async (url: string): Promise<boolean> => {
+    try {
+      // Check if URL is valid
+      if (!url || !url.startsWith('http')) {
+        return false;
+      }
+
+      // Skip validation for known good URLs (Firebase Storage URLs)
+      if (url.includes('firebasestorage.googleapis.com') || url.includes('firebaseapp.com')) {
+        return true;
+      }
+
+      // Create a timeout promise
+      const timeoutPromise = new Promise<boolean>((_, reject) => {
+        setTimeout(() => reject(new Error('Timeout')), 5000); // 5 second timeout
+      });
+
+      // Try to fetch the image to see if it exists
+      const fetchPromise = fetch(url, { method: 'HEAD' })
+        .then(response => response.ok)
+        .catch(() => false);
+
+      // Race between fetch and timeout
+      return await Promise.race([fetchPromise, timeoutPromise]);
+    } catch (error) {
+      console.error("Error validating image URL:", url, error);
+      return false;
+    }
+  };
+
+  // Helper function to retry image loading
+  const retryImageLoad = async (candidateId: string) => {
+    const currentRetries = retryCount[candidateId] || 0;
+    if (currentRetries >= 2) {
+      console.log(`Max retries reached for candidate ${candidateId}`);
+      return;
+    }
+
+    setRetryCount(prev => ({ ...prev, [candidateId]: currentRetries + 1 }));
+    console.log(`Retrying image load for candidate ${candidateId} (attempt ${currentRetries + 1})`);
+
+    // Remove from errors to allow retry
+    setImageErrors(prev => {
+      const newSet = new Set(prev);
+      newSet.delete(candidateId);
+      return newSet;
+    });
+
+    // Re-fetch the image
+    const candidate = candidates.find(c => c.id === candidateId);
+    if (candidate) {
+      // Re-trigger image fetch for this specific candidate
+      setImageLoading(prev => new Set([...prev, candidateId]));
+      
+      // Simulate a small delay before retry
+      setTimeout(() => {
+        // This will trigger the useEffect to re-run for this candidate
+        setImageURLs(prev => {
+          const newUrls = { ...prev };
+          delete newUrls[candidateId];
+          return newUrls;
+        });
+      }, 1000);
+    }
+  };
 
   useEffect(() => {
     const fetchImages = async () => {
       try {
+        console.log("Starting to fetch images for", candidates.length, "candidates");
         const urlEntries = await Promise.all(
           candidates.map(async (candidate) => {
+            let imageUrl = null;
+            console.log(`Processing candidate ${candidate.id} (${candidate.name}) with userId: ${candidate.userId}`);
+
+            // Add to loading state
+            setImageLoading(prev => new Set([...prev, candidate.id]));
+
+            // 1. First try to get candidate's specific avatar (from CV upload)
             if (candidate.avatar) {
-              const imageRef = ref(storage, `avatars/${candidate.avatar}`);
-              const url = await getDownloadURL(imageRef);
-              return [candidate.id, url] as const;
+              try {
+                // Check if it's already a full URL (from CV upload)
+                if (candidate.avatar.startsWith('http')) {
+                  // Validate the URL before using it
+                  const isValid = await validateImageUrl(candidate.avatar);
+                  if (isValid) {
+                    imageUrl = candidate.avatar;
+                    console.log(`Found valid direct URL for candidate ${candidate.id}:`, imageUrl);
+                  } else {
+                    console.warn(`Invalid direct URL for candidate ${candidate.id}:`, candidate.avatar);
+                  }
+                } else {
+                  // It's a file path, try to get download URL
+                  const imageRef = ref(storage, `avatars/${candidate.avatar}`);
+                  imageUrl = await getDownloadURL(imageRef);
+                  console.log(`Found Firebase URL for candidate ${candidate.id}:`, imageUrl);
+                }
+              } catch (error) {
+                console.error(`Error fetching candidate avatar for ${candidate.id}:`, error);
+                // Continue to try user profile image
+              }
             }
-            return null;
+
+            // 2. If no candidate avatar or it failed, try to get user profile image
+            if (!imageUrl && candidate.userId) {
+              console.log(`No avatar found for candidate ${candidate.id}, trying user profile image for userId: ${candidate.userId}`);
+              try {
+                // First try to get user type from user_types collection
+                const userTypeRef = doc(db, "user_types", candidate.userId);
+                const userTypeDoc = await getDoc(userTypeRef);
+                
+                if (userTypeDoc.exists()) {
+                  const userTypeData = userTypeDoc.data();
+                  const userType = userTypeData.userType as 'Client' | 'HR';
+                  console.log(`Found user type for ${candidate.userId}:`, userType);
+                  
+                  // Get user profile image
+                  const profileImageUrl = await getUserProfileImage(candidate.userId!, userType);
+                  if (profileImageUrl) {
+                    console.log(`Found profile image for candidate ${candidate.id}:`, profileImageUrl);
+                    // Validate the URL
+                    if (profileImageUrl.startsWith('http')) {
+                      const isValid = await validateImageUrl(profileImageUrl);
+                      if (isValid) {
+                        imageUrl = profileImageUrl;
+                      } else {
+                        console.warn(`Invalid profile image URL for candidate ${candidate.id}:`, profileImageUrl);
+                      }
+                    } else {
+                      console.warn(`Invalid profile image URL for candidate ${candidate.id}:`, profileImageUrl);
+                    }
+                  } else {
+                    console.log(`No profile image found for candidate ${candidate.id} with userId: ${candidate.userId}`);
+                  }
+                } else {
+                  console.log(`No user type found for candidate ${candidate.id} with userId: ${candidate.userId}`);
+                }
+              } catch (error) {
+                console.error(`Error fetching profile image for candidate ${candidate.id}:`, error);
+              }
+            }
+
+            // Remove from loading state
+            setImageLoading(prev => {
+              const newSet = new Set(prev);
+              newSet.delete(candidate.id);
+              return newSet;
+            });
+
+            if (imageUrl) {
+              console.log(`Final image URL for candidate ${candidate.id}:`, imageUrl);
+            } else {
+              console.log(`No image found for candidate ${candidate.id}`);
+            }
+
+            return imageUrl ? [candidate.id, imageUrl] as const : null;
           })
         );
 
         const urls = Object.fromEntries(urlEntries.filter(Boolean) as [string, string][]);
+        console.log("Final fetched image URLs:", urls);
         setImageURLs(urls);
       } catch (error) {
         console.error("Error fetching images:", error);
+        // Clear loading state for all candidates
+        setImageLoading(new Set());
       }
     };
 
     if (candidates.length > 0) {
       fetchImages();
+    } else {
+      setImageURLs({});
+      setImageLoading(new Set());
+      setImageErrors(new Set());
+      setRetryCount({});
     }
+
+    // Cleanup function
+    return () => {
+      setImageLoading(new Set());
+      setImageErrors(new Set());
+      setRetryCount({});
+    };
   }, [candidates]);
 
   const handleFilterChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -71,27 +244,132 @@ export default function Candidates() {
     setExpandedRows(newSet);
   };
 
-  const handleApprove = (id: string) => {
-    setCandidateStatusMap((prev) => ({ ...prev, [id]: "Approved" }));
+  const handleApprove = async (id: string) => {
+    try {
+      await updateCandidate(id, { status: "Approved" });
+      setCandidateStatusMap((prev) => ({ ...prev, [id]: "Approved" }));
+    } catch (error) {
+      console.error("Error updating candidate status:", error);
+      alert("Failed to update candidate status. Please try again.");
+    }
   };
 
+  const handleReject = async (id: string) => {
+    try {
+      await updateCandidate(id, { status: "Rejected" });
+      setCandidateStatusMap((prev) => ({ ...prev, [id]: "Rejected" }));
+    } catch (error) {
+      console.error("Error updating candidate status:", error);
+      alert("Failed to update candidate status. Please try again.");
+    }
+  };
+
+  // More lenient filter function
   const matchesFilter = (candidate: Candidate) => {
-    return (
-      (filters.degree === "All" || candidate.education?.includes(filters.degree)) &&
-      (filters.experience === "All" || candidate.experience?.includes(filters.experience)) &&
-      (filters.technicalSkills === "All" ||
-        candidate.skills?.some((s) =>
-          s.toLowerCase().includes(filters.technicalSkills.toLowerCase())
-        )) &&
-      (filters.previousJob === "All" || candidate.role?.includes(filters.previousJob)) &&
-      (filters.certifications === "All" ||
-        candidate.rawText?.toLowerCase().includes(filters.certifications.toLowerCase()))
-    );
+    // If all filters are "All", show all candidates
+    if (Object.values(filters).every(filter => filter === "All")) {
+      return true;
+    }
+
+    // Check each filter only if it's not "All"
+    const degreeMatch = filters.degree === "All" || 
+      (candidate.education && candidate.education.toLowerCase().includes(filters.degree.toLowerCase()));
+    
+    const experienceMatch = filters.experience === "All" || 
+      (candidate.experience && candidate.experience.toLowerCase().includes(filters.experience.toLowerCase()));
+    
+    const technicalSkillsMatch = filters.technicalSkills === "All" || 
+      (candidate.skills && candidate.skills.some(skill => 
+        skill.toLowerCase().includes(filters.technicalSkills.toLowerCase())
+      ));
+    
+    const previousJobMatch = filters.previousJob === "All" || 
+      (candidate.role && candidate.role.toLowerCase().includes(filters.previousJob.toLowerCase()));
+    
+    const certificationsMatch = filters.certifications === "All" || 
+      (candidate.rawText && candidate.rawText.toLowerCase().includes(filters.certifications.toLowerCase()));
+
+    return degreeMatch && experienceMatch && technicalSkillsMatch && previousJobMatch && certificationsMatch;
   };
 
   const HandleLogout = () => {
     alert("Logout successful");
     navigate("/login");
+  };
+
+  // Get filtered candidates
+  const filteredCandidates = candidates.filter(matchesFilter);
+
+  // Helper function to get initials from name
+  const getInitials = (name: string) => {
+    return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+  };
+
+  // Helper function to render avatar
+  const renderAvatar = (candidate: Candidate) => {
+    const isLoading = imageLoading.has(candidate.id);
+    const hasImage = imageURLs[candidate.id] && !imageErrors.has(candidate.id);
+    const hasError = imageErrors.has(candidate.id);
+    const currentRetries = retryCount[candidate.id] || 0;
+    
+    if (isLoading) {
+      // Show loading spinner
+      return (
+        <div className="w-12 h-12 rounded-full bg-gray-200 flex items-center justify-center border-2 border-gray-200">
+          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500"></div>
+        </div>
+      );
+    }
+    
+    if (hasImage) {
+      return (
+        <img
+          src={imageURLs[candidate.id]}
+          alt={candidate.name}
+          className="w-12 h-12 rounded-full object-cover border-2 border-gray-200"
+          onError={(e) => {
+            console.log(`Image failed to load for candidate ${candidate.id}, falling back to initials`);
+            setImageErrors(prev => new Set([...prev, candidate.id]));
+            // Clear the src to prevent repeated error events
+            e.currentTarget.src = '';
+          }}
+          onLoad={() => {
+            // Remove from errors if image loads successfully
+            setImageErrors(prev => {
+              const newSet = new Set(prev);
+              newSet.delete(candidate.id);
+              return newSet;
+            });
+          }}
+        />
+      );
+    } else if (hasError && currentRetries < 2) {
+      // Show retry button if image failed to load and retries are available
+      return (
+        <div className="relative group">
+          <div className="w-12 h-12 rounded-full bg-gray-300 flex items-center justify-center border-2 border-gray-200">
+            <div className="text-gray-500 text-xs text-center">
+              <div>⚠️</div>
+              <div className="text-[8px]">Retry</div>
+            </div>
+          </div>
+          <button
+            onClick={() => retryImageLoad(candidate.id)}
+            className="absolute inset-0 w-12 h-12 rounded-full bg-black bg-opacity-50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
+            title="Retry loading image"
+          >
+            <div className="text-white text-xs">↻</div>
+          </button>
+        </div>
+      );
+    } else {
+      // Show initials as fallback
+      return (
+        <div className="w-12 h-12 rounded-full bg-blue-500 text-white flex items-center justify-center font-semibold text-sm border-2 border-gray-200">
+          {getInitials(candidate.name)}
+        </div>
+      );
+    }
   };
 
   return (
@@ -114,7 +392,13 @@ export default function Candidates() {
 
       {/* Main content */}
       <main className="flex-1 p-8">
-        <h1 className="text-xl font-semibold mb-6">Candidates</h1>
+        <div className="flex justify-between items-center mb-6">
+          <h1 className="text-xl font-semibold">Candidates</h1>
+          <div className="text-sm text-gray-500">
+            Total Candidates: {candidates.length} | 
+            Showing: {filteredCandidates.length}
+          </div>
+        </div>
 
         {/* Filters */}
         <div className="flex flex-wrap items-end gap-6 mb-6">
@@ -147,89 +431,183 @@ export default function Candidates() {
           </button>
         </div>
 
+        {/* Debug information */}
+        {process.env.NODE_ENV === 'development' && (
+          <div className="mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded">
+            <p className="text-sm text-yellow-800">
+              <strong>Debug Info:</strong> {candidates.length} candidates loaded, {filteredCandidates.length} filtered
+            </p>
+          </div>
+        )}
+
         {/* Candidates list */}
-        {candidates.filter(matchesFilter).length === 0 ? (
-          <p className="text-gray-500">No candidates match the filters.</p>
+        {candidates.length === 0 ? (
+          <div className="text-center py-8">
+            <p className="text-gray-500 text-lg">No candidates found.</p>
+            <p className="text-gray-400 text-sm mt-2">Candidates will appear here once CVs are uploaded.</p>
+            <div className="mt-4">
+              <p className="text-xs text-gray-400">
+                If you've uploaded CVs but don't see them here, please check the browser console for any errors.
+              </p>
+            </div>
+          </div>
+        ) : filteredCandidates.length === 0 ? (
+          <div className="text-center py-8">
+            <p className="text-gray-500 text-lg">No candidates match the current filters.</p>
+            <button
+              onClick={resetFilters}
+              className="mt-2 text-sm px-4 py-2 rounded-full bg-blue-100 border hover:bg-blue-200 text-blue-700"
+            >
+              Clear Filters
+            </button>
+          </div>
         ) : (
           <div className="space-y-4">
-            {candidates.filter(matchesFilter).map((candidate) => (
-              <div key={candidate.id} className="border rounded-lg p-4 hover:shadow transition">
+            {filteredCandidates.map((candidate) => (
+              <div key={candidate.id} className="border rounded-lg p-6 hover:shadow-lg transition-all bg-white">
                 <div className="flex justify-between items-center">
                   {/* Avatar, Name, Role */}
-                  <div className="flex items-center gap-4">
-                    <img
-                      src={imageURLs[candidate.id] || "/fallback-avatar.png"}
-                      alt={candidate.name}
-                      className="w-10 h-10 rounded-full object-cover"
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).src = "/fallback-avatar.png";
-                      }}
-                    />
+                  <div className="flex items-center gap-4 flex-1">
+                    {renderAvatar(candidate)}
                     <div>
-                      <p className="font-semibold">{candidate.name}</p>
-                      <p className="text-sm text-gray-500">{candidate.role}</p>
+                      <p className="font-semibold text-lg text-gray-900">{candidate.name}</p>
+                      <p className="text-sm text-gray-500">{candidate.role || "Not specified"}</p>
                     </div>
                   </div>
 
                   {/* Department */}
-                  <div className="text-gray-700 w-[200px]">{candidate.department}</div>
+                  <div className="text-gray-700 w-[200px] text-center">
+                    <p className="font-medium">{candidate.department || "General"}</p>
+                  </div>
 
                   {/* Status */}
-                  <div className="w-[150px]">
+                  <div className="w-[150px] text-center">
                     <span
-                      className={`px-3 py-1 rounded-full text-sm font-medium ${
+                      className={`px-4 py-2 rounded-full text-sm font-medium ${
                         (candidateStatusMap[candidate.id] || candidate.status) === "Approved"
-                          ? "bg-green-100 text-green-600"
-                          : "bg-red-100 text-red-600"
+                          ? "bg-green-100 text-green-700"
+                          : (candidateStatusMap[candidate.id] || candidate.status) === "Full-Time"
+                          ? "bg-blue-100 text-blue-700"
+                          : (candidateStatusMap[candidate.id] || candidate.status) === "Part-Time"
+                          ? "bg-yellow-100 text-yellow-700"
+                          : "bg-red-100 text-red-700"
                       }`}
                     >
-                      {candidateStatusMap[candidate.id] || candidate.status}
+                      {candidateStatusMap[candidate.id] || candidate.status || "Pending"}
                     </span>
                   </div>
 
                   {/* Contact */}
                   <div className="w-[300px] text-sm text-gray-800">
-                    <div className="flex items-center gap-2">
-                      <Mail size={16} className="text-gray-500" />
-                      <a href={`mailto:${candidate.email}`} className="hover:underline">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Mail size={16} className="text-gray-500 flex-shrink-0" />
+                      <a 
+                        href={`mailto:${candidate.email}`} 
+                        className="hover:underline text-blue-600 truncate block"
+                        title={candidate.email}
+                      >
                         {candidate.email}
                       </a>
                     </div>
-                    <div className="flex items-center gap-2 mt-1">
-                      <Phone size={16} className="text-gray-500" />
-                      <a href={`tel:${candidate.phone}`} className="hover:underline">
+                    <div className="flex items-center gap-2">
+                      <Phone size={16} className="text-gray-500 flex-shrink-0" />
+                      <a 
+                        href={`tel:${candidate.phone}`} 
+                        className="hover:underline text-blue-600"
+                      >
                         {candidate.phone}
                       </a>
                     </div>
                   </div>
 
-                  {/* Expand button */}
-                  <button
-                    onClick={() => toggleExpand(candidate.id)}
-                    className="text-gray-400 hover:text-gray-600"
-                  >
-                    {expandedRows.has(candidate.id) ? <FaChevronUp /> : <FaChevronDown />}
-                  </button>
+                  {/* Action button */}
+                  <div className="w-[50px] text-center">
+                    <button
+                      onClick={() => toggleExpand(candidate.id)}
+                      className="text-gray-400 hover:text-gray-600 transition-colors"
+                      title="View details"
+                    >
+                      {expandedRows.has(candidate.id) ? (
+                        <ChevronUp size={20} />
+                      ) : (
+                        <ChevronDown size={20} />
+                      )}
+                    </button>
+                  </div>
                 </div>
 
                 {/* Expanded details */}
                 {expandedRows.has(candidate.id) && (
-                  <div className="mt-4 bg-gray-50 p-4 rounded text-sm text-gray-700 space-y-2">
-                    <div><strong>Skills:</strong> {candidate.skills?.join(", ") || "N/A"}</div>
-                    <div><strong>Experience:</strong> {candidate.experience || "N/A"}</div>
-                    <div><strong>Education:</strong> {candidate.education || "N/A"}</div>
-                    <div>
-                      <strong>Actions:</strong>{" "}
-                      {candidateStatusMap[candidate.id] === "Approved" ? (
-                        <span className="text-green-600 font-semibold ml-2">✅ Approved</span>
-                      ) : (
-                        <button
-                          onClick={() => handleApprove(candidate.id)}
-                          className="flex items-center gap-2 px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm font-medium hover:bg-green-200"
-                        >
-                          ✅ Approve
-                        </button>
-                      )}
+                  <div className="mt-6 bg-gray-50 p-6 rounded-lg text-sm text-gray-700 space-y-4 border-t">
+                    <div className="grid grid-cols-2 gap-6">
+                      <div>
+                        <h4 className="font-semibold text-gray-900 mb-2">Professional Information</h4>
+                        <div className="space-y-2">
+                          <div><strong>Skills:</strong> {candidate.skills?.join(", ") || "N/A"}</div>
+                          <div><strong>Experience:</strong> {candidate.experience || "N/A"}</div>
+                          <div><strong>Education:</strong> {candidate.education || "N/A"}</div>
+                          {candidate.certifications && candidate.certifications.length > 0 && (
+                            <div><strong>Certifications:</strong> {candidate.certifications.join(", ")}</div>
+                          )}
+                          {candidate.languages && candidate.languages.length > 0 && (
+                            <div><strong>Languages:</strong> {candidate.languages.join(", ")}</div>
+                          )}
+                        </div>
+                      </div>
+                      <div>
+                        <h4 className="font-semibold text-gray-900 mb-2">Additional Information</h4>
+                        <div className="space-y-2">
+                          {candidate.address && <div><strong>Address:</strong> {candidate.address}</div>}
+                          {candidate.linkedin && (
+                            <div>
+                              <strong>LinkedIn:</strong>{" "}
+                              <a href={candidate.linkedin} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                                View Profile
+                              </a>
+                            </div>
+                          )}
+                          {candidate.portfolio && (
+                            <div>
+                              <strong>Portfolio:</strong>{" "}
+                              <a href={candidate.portfolio} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                                View Portfolio
+                              </a>
+                            </div>
+                          )}
+                          {candidate.availability && <div><strong>Availability:</strong> {candidate.availability}</div>}
+                          {candidate.salary && <div><strong>Salary Expectation:</strong> {candidate.salary}</div>}
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div className="border-t pt-4">
+                      <div className="flex justify-between items-center">
+                        <div>
+                          <strong>Actions:</strong>
+                        </div>
+                        <div className="flex gap-2">
+                          {candidateStatusMap[candidate.id] === "Approved" ? (
+                            <span className="text-green-600 font-semibold flex items-center gap-2">
+                              ✅ Approved
+                            </span>
+                          ) : (
+                            <>
+                              <button
+                                onClick={() => handleApprove(candidate.id)}
+                                className="flex items-center gap-2 px-4 py-2 bg-green-100 text-green-700 rounded-full text-sm font-medium hover:bg-green-200 transition-colors"
+                              >
+                                ✅ Approve
+                              </button>
+                              <button
+                                onClick={() => handleReject(candidate.id)}
+                                className="flex items-center gap-2 px-4 py-2 bg-red-100 text-red-700 rounded-full text-sm font-medium hover:bg-red-200 transition-colors"
+                              >
+                                ❌ Reject
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 )}

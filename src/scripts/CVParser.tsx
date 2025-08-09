@@ -11,20 +11,32 @@ export interface ExtractedCVInfo {
   education: string;
   rawText: string;
   role: string;
-  compétance :string;
+  compétance: string;
+  status?: string;
+  address?: string;
+  linkedin?: string;
+  portfolio?: string;
+  certifications?: string[];
+  languages?: string[];
+  availability?: string;
+  salary?: string;
+  notes?: string;
 }
 
 const EMAIL_REGEX = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g;
 const PHONE_REGEX = /(\+?\d{1,4}[-.\s]?)?\(?\d{1,4}\)?[-.\s]?\d{1,4}[-.\s]?\d{1,9}/g;
+const LINKEDIN_REGEX = /(?:https?:\/\/)?(?:www\.)?linkedin\.com\/in\/[a-zA-Z0-9-]+/gi;
+const PORTFOLIO_REGEX = /(?:https?:\/\/)?(?:www\.)?[a-zA-Z0-9-]+\.(?:com|net|org|io|co|me)\/?/gi;
 
 const DEPARTMENT_KEYWORDS = {
-  'Engineering': ['engineer', 'developer', 'software', 'programming', 'coding', 'technical', 'backend', 'frontend', 'fullstack', 'devops'],
-  'Design': ['designer', 'ui', 'ux', 'graphic', 'visual', 'creative', 'photoshop', 'illustrator', 'figma'],
-  'Marketing': ['marketing', 'digital marketing', 'seo', 'social media', 'advertising', 'campaign', 'brand'],
-  'Sales': ['sales', 'business development', 'account manager', 'customer relations', 'revenue'],
-  'HR': ['human resources', 'hr', 'recruitment', 'talent acquisition', 'people operations'],
-  'Finance': ['finance', 'accounting', 'financial', 'budget', 'audit', 'controller', 'analyst'],
-  'Operations': ['operations', 'logistics', 'supply chain', 'project management', 'process improvement']
+  'Engineering': ['engineer', 'developer', 'software', 'programming', 'coding', 'technical', 'backend', 'frontend', 'fullstack', 'devops', 'system', 'data'],
+  'Design': ['designer', 'ui', 'ux', 'graphic', 'visual', 'creative', 'photoshop', 'illustrator', 'figma', 'sketch', 'adobe'],
+  'Marketing': ['marketing', 'digital marketing', 'seo', 'social media', 'advertising', 'campaign', 'brand', 'content'],
+  'Sales': ['sales', 'business development', 'account manager', 'customer relations', 'revenue', 'business'],
+  'HR': ['human resources', 'hr', 'recruitment', 'talent acquisition', 'people operations', 'personnel'],
+  'Finance': ['finance', 'accounting', 'financial', 'budget', 'audit', 'controller', 'analyst', 'accountant'],
+  'Operations': ['operations', 'logistics', 'supply chain', 'project management', 'process improvement', 'management'],
+  'Design Department': ['designer', 'ui', 'ux', 'graphic', 'visual', 'creative', 'photoshop', 'illustrator', 'figma', 'sketch', 'adobe']
 };
 
 const SKILLS_KEYWORDS = [
@@ -33,14 +45,22 @@ const SKILLS_KEYWORDS = [
   'aws', 'azure', 'docker', 'kubernetes', 'git', 'github', 'gitlab', 'jenkins', 'ci/cd',
   'photoshop', 'illustrator', 'figma', 'sketch', 'adobe', 'canva', 'indesign',
   'excel', 'powerpoint', 'word', 'google analytics', 'seo', 'sem', 'social media',
-  'project management', 'agile', 'scrum', 'jira', 'trello', 'slack', 'teams','flutter', 'react native',
+  'project management', 'agile', 'scrum', 'jira', 'trello', 'slack', 'teams', 'flutter', 'react native',
   'graphql', 'rest', 'api', 'web development', 'mobile development', 'data analysis',
   'machine learning', 'artificial intelligence', 'data science', 'big data', 'cloud computing',
   'cybersecurity', 'penetration testing', 'ethical hacking', 'network security', 'information security',
   'business analysis', 'ux design', 'ui design', 'graphic design', 'content creation', 'copywriting',
   'video editing', 'audio editing', 'public speaking', 'communication', 'negotiation', 'leadership',
   'teamwork', 'problem solving', 'critical thinking', 'time management', 'adaptability', 'creativity'
-  ];
+];
+
+const STATUS_KEYWORDS = {
+  'Full-Time': ['full-time', 'full time', 'permanent', 'fulltime'],
+  'Part-Time': ['part-time', 'part time', 'parttime'],
+  'Contract': ['contract', 'freelance', 'consultant'],
+  'Internship': ['intern', 'internship', 'student'],
+  'Pending': ['pending', 'applied', 'new']
+};
 
 export class CVParser {
   static async parseCV(file: File): Promise<ExtractedCVInfo> {
@@ -110,11 +130,21 @@ export class CVParser {
     const lowerText = text.toLowerCase();
     const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
 
+    // Extract email
     const emailMatches = text.match(EMAIL_REGEX);
     const email = emailMatches ? emailMatches[0] : '';
 
+    // Extract phone
     const phoneMatches = text.match(PHONE_REGEX);
     const phone = phoneMatches ? phoneMatches[0].replace(/\s+/g, '') : '';
+
+    // Extract LinkedIn
+    const linkedinMatches = text.match(LINKEDIN_REGEX);
+    const linkedin = linkedinMatches ? linkedinMatches[0] : '';
+
+    // Extract portfolio
+    const portfolioMatches = text.match(PORTFOLIO_REGEX);
+    const portfolio = portfolioMatches ? portfolioMatches[0] : '';
 
     // ✅ Improved name extraction logic
     let name = '';
@@ -155,8 +185,10 @@ export class CVParser {
       }
     }
 
+    // Extract skills
     const skills = SKILLS_KEYWORDS.filter(skill => lowerText.includes(skill.toLowerCase()));
 
+    // Extract experience
     let experience = '';
     const experienceMatches = text.match(/(\d+)\s*(?:years?|yrs?)\s*(?:of\s*)?(?:experience|exp)/gi);
     if (experienceMatches) {
@@ -166,8 +198,10 @@ export class CVParser {
       experience = expSection.substring(0, 200) + (expSection.length > 200 ? '...' : '');
     }
 
+    // Extract education
     const education = this.extractSection(text, ['education', 'academic', 'qualification', 'degree']);
 
+    // Extract role
     let role = '';
     if (experience) {
       const roleMatches = experience.match(/(?:as\s+)?([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)(?:\s+(?:at|in|for)\s+)/);
@@ -178,6 +212,24 @@ export class CVParser {
       }
     }
 
+    // Detect status
+    let status = 'Pending';
+    for (const [statusType, keywords] of Object.entries(STATUS_KEYWORDS)) {
+      if (keywords.some(keyword => lowerText.includes(keyword))) {
+        status = statusType;
+        break;
+      }
+    }
+
+    // Extract certifications
+    const certifications = this.extractCertifications(text);
+
+    // Extract languages
+    const languages = this.extractLanguages(text);
+
+    // Extract address
+    const address = this.extractAddress(text);
+
     return {
       name,
       email,
@@ -187,8 +239,17 @@ export class CVParser {
       experience: experience || 'Not specified',
       education: education.substring(0, 200) + (education.length > 200 ? '...' : ''),
       rawText: text,
-      role: role || 'Not specified'
-      , compétance : skills.join(', ') || 'Not specified'
+      role: role || 'Not specified',
+      compétance: skills.join(', ') || 'Not specified',
+      status,
+      address,
+      linkedin,
+      portfolio,
+      certifications,
+      languages,
+      availability: 'Available',
+      salary: '',
+      notes: ''
     };
   }
 
@@ -223,5 +284,44 @@ export class CVParser {
 
     return lines.slice(sectionStart + 1, sectionEnd).join('\n').trim();
   }
+
+  private static extractCertifications(text: string): string[] {
+    const certifications: string[] = [];
+    const certKeywords = ['certification', 'certified', 'certificate', 'license', 'accreditation'];
+    const lines = text.split('\n');
+    
+    for (const line of lines) {
+      const lowerLine = line.toLowerCase();
+      if (certKeywords.some(keyword => lowerLine.includes(keyword))) {
+        const cleanCert = line.replace(/[^\w\s-]/g, '').trim();
+        if (cleanCert.length > 3 && cleanCert.length < 100) {
+          certifications.push(cleanCert);
+        }
+      }
+    }
+    
+    return certifications.slice(0, 5); // Limit to 5 certifications
+  }
+
+  private static extractLanguages(text: string): string[] {
+    const languages: string[] = [];
+    const languageKeywords = ['english', 'french', 'spanish', 'german', 'italian', 'portuguese', 'arabic', 'chinese', 'japanese', 'korean'];
+    const lowerText = text.toLowerCase();
+    
+    for (const lang of languageKeywords) {
+      if (lowerText.includes(lang)) {
+        languages.push(lang.charAt(0).toUpperCase() + lang.slice(1));
+      }
+    }
+    
+    return languages;
+  }
+
+  private static extractAddress(text: string): string {
+    const addressRegex = /(\d+\s+[A-Za-z\s,]+(?:street|st|avenue|ave|road|rd|boulevard|blvd|drive|dr|lane|ln|way|place|pl|court|ct|circle|cir|terrace|ter|trail|trl|parkway|pkwy|highway|hwy|freeway|fwy|expressway|expy|turnpike|tpke|route|rte|county|co|state|st|province|prov|country|ctry|zip|postal|code|postcode|pc)[A-Za-z\s,]*)/gi;
+    const addressMatches = text.match(addressRegex);
+    return addressMatches ? addressMatches[0].trim() : '';
+  }
 }
+
 export default CVParser;

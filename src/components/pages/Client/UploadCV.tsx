@@ -1,10 +1,12 @@
 import { useState, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useCandidates } from "../../../contexts/CandidatesContext";
-import  CVParser from "../../../scripts/CVParser";
+import CVParser from "../../../scripts/CVParser";
 
 const UploadCV = () => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [extractedInfo, setExtractedInfo] = useState<any>(null);
   const navigate = useNavigate();
 
   const { addCandidate } = useCandidates();
@@ -17,6 +19,7 @@ const UploadCV = () => {
   const onFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files && event.target.files.length > 0) {
       setSelectedFile(event.target.files[0]);
+      setExtractedInfo(null);
     }
   };
 
@@ -24,6 +27,7 @@ const UploadCV = () => {
     event.preventDefault();
     if (event.dataTransfer.files && event.dataTransfer.files.length > 0) {
       setSelectedFile(event.dataTransfer.files[0]);
+      setExtractedInfo(null);
       event.dataTransfer.clearData();
     }
   }, []);
@@ -37,6 +41,8 @@ const UploadCV = () => {
       alert("Please select a file first.");
       return;
     }
+
+    setUploading(true);
 
     try {
       const { storage } = await import("../../../components/firebase/firebase");
@@ -56,6 +62,7 @@ const UploadCV = () => {
         (error) => {
           console.error("Upload failed:", error);
           alert("Upload failed. Please try again.");
+          setUploading(false);
         },
         async () => {
           const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
@@ -65,33 +72,46 @@ const UploadCV = () => {
           try {
             const extractedInfo = await CVParser.parseCV(selectedFile);
             console.log("Extracted info:", extractedInfo);
+            setExtractedInfo(extractedInfo);
 
-            // 3. Add candidate using context
+            // 3. Add candidate using context with all extracted data
             await addCandidate({
-              name: extractedInfo.name ,
-              role: extractedInfo.role  ,
-              department: extractedInfo.department  ,
-              status: "Pending",
-              email: extractedInfo.email ,
-              phone: extractedInfo.phone ,
+              name: extractedInfo.name,
+              role: extractedInfo.role,
+              department: extractedInfo.department,
+              status: extractedInfo.status || "Pending",
+              email: extractedInfo.email,
+              phone: extractedInfo.phone,
               avatar: downloadURL,
               skills: extractedInfo.skills || [],
-              experience: extractedInfo.experience ,
-              education: extractedInfo.education ,
-              rawText: extractedInfo.rawText ,
+              experience: extractedInfo.experience,
+              education: extractedInfo.education,
+              rawText: extractedInfo.rawText,
+              address: extractedInfo.address,
+              linkedin: extractedInfo.linkedin,
+              portfolio: extractedInfo.portfolio,
+              certifications: extractedInfo.certifications || [],
+              languages: extractedInfo.languages || [],
+              availability: extractedInfo.availability || "Available",
+              salary: extractedInfo.salary || "",
+              notes: extractedInfo.notes || ""
             });
 
             alert("CV uploaded and candidate added successfully!");
             setSelectedFile(null);
+            setExtractedInfo(null);
           } catch (parseError) {
             console.error("CV parsing failed:", parseError);
             alert("Failed to extract info from CV.");
+          } finally {
+            setUploading(false);
           }
         }
       );
     } catch (error) {
       console.error("Upload error:", error);
       alert("An error occurred during upload.");
+      setUploading(false);
     }
   };
 
@@ -170,10 +190,35 @@ const UploadCV = () => {
 
         <button
           onClick={handleUpload}
-          className="mt-6 bg-blue-600 text-white px-6 py-3 rounded hover:bg-blue-700 transition"
+          disabled={uploading || !selectedFile}
+          className="mt-6 bg-blue-600 text-white px-6 py-3 rounded hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          UPLOAD & EXTRACT
+          {uploading ? "UPLOADING..." : "UPLOAD & EXTRACT"}
         </button>
+
+        {/* Display extracted information */}
+        {extractedInfo && (
+          <div className="mt-8 p-6 bg-gray-50 rounded-lg">
+            <h3 className="text-lg font-semibold mb-4">Extracted Information</h3>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <p><strong>Name:</strong> {extractedInfo.name}</p>
+                <p><strong>Email:</strong> {extractedInfo.email}</p>
+                <p><strong>Phone:</strong> {extractedInfo.phone}</p>
+                <p><strong>Role:</strong> {extractedInfo.role}</p>
+                <p><strong>Department:</strong> {extractedInfo.department}</p>
+                <p><strong>Status:</strong> {extractedInfo.status}</p>
+              </div>
+              <div>
+                <p><strong>Skills:</strong> {extractedInfo.skills?.join(", ")}</p>
+                <p><strong>Experience:</strong> {extractedInfo.experience}</p>
+                <p><strong>Education:</strong> {extractedInfo.education}</p>
+                <p><strong>Languages:</strong> {extractedInfo.languages?.join(", ")}</p>
+                <p><strong>Certifications:</strong> {extractedInfo.certifications?.join(", ")}</p>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );

@@ -1,39 +1,57 @@
-import  {useEffect} from 'react';
-import { useState } from "react";
-import { getIdToken } from 'firebase/auth';
+import { useEffect, useState } from 'react';
+import { getAuth, onAuthStateChanged } from 'firebase/auth';
+import { getUserType } from '../components/firebase/database';
 
+const useLogin = () => {
+  const [loading, setLoading] = useState(true);
 
-const useLogin = () =>{
+  useEffect(() => {
+    const auth = getAuth();
+    
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      try {
+        if (!user) {
+          window.location.href = '/login';
+          return;
+        }
 
-    const userType = localStorage.getItem('userType');
-    const [loading, setLoading] = useState(true);
-    const  useEffect=() => {
-        const checkLogin = async () => {
-            try {
-                const user = JSON.parse(localStorage.getItem('user') || 'null');
-                const token = user ? await getIdToken(user) : null;
-                if (!token) {
-                    window.location.href = '/login';
-                } else {
-                    setLoading(false);
-                }
-            } catch (error) {
-                console.error('Error checking login:', error);
-                window.location.href = '/login';
-            }
-        };
+        // Check user type from database
+        const userTypeResult = await getUserType(user.uid);
+        if (userTypeResult.success && userTypeResult.data) {
+          const userType = userTypeResult.data.userType;
+          localStorage.setItem('userType', userType);
+          localStorage.setItem('user', JSON.stringify(user));
+          
+          if (userType === 'HR') {
+            window.location.href = '/HRinterface';
+          } else if (userType === 'Client') {
+            window.location.href = '/client';
+          } else {
+            window.location.href = '/login';
+          }
+        } else {
+          // Fallback to localStorage if database check fails
+          const userType = localStorage.getItem('userType');
+          if (userType === 'HR') {
+            window.location.href = '/HRinterface';
+          } else if (userType === 'Client') {
+            window.location.href = '/client';
+          } else {
+            window.location.href = '/login';
+          }
+        }
 
-        checkLogin();
-     if (userType === 'HR') {
-         window.location.href = '/HRinterface';   
-     } else if (userType === 'Client') {
-         window.location.href = '/client';
-     } else {
-         window.location.href = '/login';
+        setLoading(false);
+      } catch (error) {
+        console.error('Error checking login:', error);
+        window.location.href = '/login';
+      }
+    });
 
-    return null; 
-     }
-    }
+    return () => unsubscribe();
+  }, []);
+
+  return { loading };
 };
 
 export default useLogin;

@@ -1,26 +1,58 @@
 import { useState } from 'react'
 import { createUserWithEmailAndPassword } from "firebase/auth";
 import { auth } from '../../firebase/firebase';
+import { saveUserType } from '../../firebase/database';
+import { useNavigate } from 'react-router-dom';
 
 export default function SignupPage() {
   const [userType, setUserType] = useState<'Client' | 'HR'>('Client')
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-
-
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+  const navigate = useNavigate()
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
-    createUserWithEmailAndPassword(auth, email, password)
-      .then((userCredential) => {
-        const user = userCredential.user;
-        console.log('Signup successful:', user);
-      })
-      .catch((error) => {
-        console.error('Signup failed:', error);
-      });
-    
+    setError('');
+    setLoading(true);
+
+    try {
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      const user = userCredential.user;
+      
+      console.log('Signup successful:', user);
+      console.log('User ID:', user.uid);
+      
+      // Save user type to database
+      const userTypeResult = await saveUserType(user.uid, userType, email);
+      if (!userTypeResult.success) {
+        throw new Error(userTypeResult.message || 'Failed to save user type');
+      }
+      
+      // Wait a moment for authentication to fully propagate
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // Verify user is still authenticated
+      if (auth.currentUser) {
+        localStorage.setItem('userType', userType);
+        localStorage.setItem('user', JSON.stringify(user));
+        
+        if (userType === 'Client') {
+          navigate('/client');
+        } else if (userType === 'HR') {
+          navigate('/HRinterface');
+        }
+      } else {
+        setError('Authentication failed. Please try again.');
+      }
+    } catch (error: any) {
+      console.error('Signup failed:', error);
+      setError(error.message || 'Signup failed. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -47,53 +79,58 @@ export default function SignupPage() {
         </button>
       </div>
 
-      <form className="space-y-4" onSubmit={handleSignup}>
-        <div className="relative">
-          <span className="absolute inset-y-0 left-3 flex items-center text-gray-400">
-          </span>
+      <form onSubmit={handleSignup} className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Full Name
+          </label>
           <input
             type="text"
-            placeholder="Full Name"
-            className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             value={fullName}
-            onChange={e => setFullName(e.target.value)}
+            onChange={(e) => setFullName(e.target.value)}
+            className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
             required
           />
         </div>
 
-        <div className="relative">
-          <span className="absolute inset-y-0 left-3 flex items-center text-gray-400">
-          </span>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Email
+          </label>
           <input
             type="email"
-            placeholder="Email Address"
-            className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             value={email}
-            onChange={e => setEmail(e.target.value)}
+            onChange={(e) => setEmail(e.target.value)}
+            className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
             required
           />
         </div>
 
-        <div className="relative">
-          <span className="absolute inset-y-0 left-3 flex items-center text-gray-400">
-          </span>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Password
+          </label>
           <input
             type="password"
-            placeholder="Password"
-            className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             value={password}
-            onChange={e => setPassword(e.target.value)}
+            onChange={(e) => setPassword(e.target.value)}
+            className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
             required
           />
         </div>
+
+        {error && (
+          <div className="text-red-500 text-sm">{error}</div>
+        )}
 
         <button
           type="submit"
-          className="w-full bg-blue-600 text-white py-2 rounded-lg font-semibold hover:bg-blue-700 transition"
+          disabled={loading}
+          className="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          Register
+          {loading ? 'Creating account...' : 'Sign Up'}
         </button>
       </form>
     </div>
-  )
+  );
 }
