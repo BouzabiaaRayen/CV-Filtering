@@ -1,8 +1,17 @@
 import { Link, useNavigate } from "react-router-dom";
 import illustration from "../../../assets/suivie.png";
+import { useCandidates } from "../../../contexts/CandidatesContext";
+import { getAuth } from "firebase/auth";
 
 const Suivie: React.FC = () => {
   const navigate = useNavigate();
+  const { candidates } = useCandidates();
+  const auth = getAuth();
+
+  const currentUserId = auth.currentUser?.uid;
+  const isApproved = !!currentUserId && candidates.some(
+    (c) => c.userId === currentUserId && c.status === "Approved"
+  );
 
   const handleLogout = () => {
     alert("Logout successfully");
@@ -36,47 +45,57 @@ const Suivie: React.FC = () => {
 
       <main className="flex-1 p-10">
         <h1 className="text-gray-700 text-sm font-medium pb-4 border-b">
-          CV Approved
+          {isApproved ? "CV Approved" : "CV Status"}
         </h1>
 
         <section className="mt-10">
-          <div className="flex flex-col lg:flex-row items-start lg:items-center gap-10">
-            <img
-              src={illustration}
-              alt="Working illustration"
-              className="w-[420px] h-[420px] object-contain"
-            />
+          {isApproved ? (
+            <div className="flex flex-col lg:flex-row items-start lg:items-center gap-10">
+              <img
+                src={illustration}
+                alt="Working illustration"
+                className="w-[420px] h-[420px] object-contain"
+              />
 
-            <div className="max-w-2xl text-[13px] text-black leading-6">
-              <p className="mb-3">Dear Bouzablaa Rayen,</p>
-              <p className="mb-2">
-                We are pleased to inform you that your resume has been successfully
-                reviewed and approved by our recruitment team for the position of
-                Trainee at Proxym.
-              </p>
-              <p className="mb-2">
-                Your qualifications and experience align well with what we're
-                looking for, and we are excited to move forward with the next
-                steps of the selection process.
-              </p>
-              <p className="mb-2">
-                Our HR team will contact you shortly to schedule an interview and
-                provide further details.
-              </p>
-              <p className="mb-2">
-                If you have any questions in the meantime, feel free to reach out
-                to us at rh@proxym-it.com.
-              </p>
-              <p className="mb-2">
-                Thank you for your interest in joining Proxym. We look forward to
-                speaking with you soon!
-              </p>
-              <p className="mt-6">Best regards,</p>
-              <p>Bouzablaa Rayen</p>
-              <p>HR Department</p>
-              <p>Proxy-Group</p>
+              <div className="max-w-2xl text-[13px] text-black leading-6">
+                <p className="mb-3">Dear Candidate,</p>
+                <p className="mb-2">
+                  We are pleased to inform you that your resume has been successfully
+                  reviewed and approved by our recruitment team for the position of
+                  Trainee at Proxym.
+                </p>
+                <p className="mb-2">
+                  Your qualifications and experience align well with what we're
+                  looking for, and we are excited to move forward with the next
+                  steps of the selection process.
+                </p>
+                <p className="mb-2">
+                  Our HR team will contact you shortly to schedule an interview and
+                  provide further details.
+                </p>
+                <p className="mb-2">
+                  If you have any questions in the meantime, feel free to reach out
+                  to us at rh@proxym-it.com.
+                </p>
+                <p className="mb-2">
+                  Thank you for your interest in joining Proxym. We look forward to
+                  speaking with you soon!
+                </p>
+                <p className="mt-6">Best regards,</p>
+                <p>Bouzablaa Rayen</p>
+                <p>HR Department</p>
+                <p>Proxy-Group</p>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="max-w-2xl text-[13px] text-black leading-6">
+              <p className="mb-2">
+                Your CV is currently under review. Once it is approved by our HR team,
+                this page will display your approval confirmation and next steps.
+              </p>
+              <p className="text-gray-500">Please check back later.</p>
+            </div>
+          )}
 
           <div className="mt-10 flex justify-end">
             <button

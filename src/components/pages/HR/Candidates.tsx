@@ -1,35 +1,36 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Mail, Phone, ChevronUp, ChevronDown } from "lucide-react";
+import { Mail, Phone, ChevronUp, ChevronDown, Search as SearchIcon } from "lucide-react";
 import { useCandidates, Candidate } from "../../../contexts/CandidatesContext";
-import { getDownloadURL, ref } from "firebase/storage";
-import { storage } from "../../firebase/firebase";
 import { getUserProfileImage } from "../../firebase/database";
-import { getAuth } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "../../firebase/firebase";
 
-const filterOptions = {
-  degree: ["All", "Engineering", "Business", "Arts", "Design"],
-  experience: ["All", "1 year", "2 years", "3 years", "5+ years"],
-  technicalSkills: ["All", "Frameworks", "Languages", "Tools"],
-  previousJob: ["All", "Engineer", "Designer", "Developer"],
-  certifications: ["All", "Google cloud", "AWS", "Azure"],
-};
-
-const initialFilters = {
-  degree: "All",
-  experience: "All",
-  technicalSkills: "All",
-  previousJob: "All",
-  certifications: "All",
+type FiltersState = {
+  degree: string; // from education
+  experience: string; // presets like 1,2,3,5+
+  role: string;
+  department: string;
+  status: string;
+  technicalSkills: string[];
+  certifications: string[];
+  search: string;
 };
 
 export default function Candidates() {
   const navigate = useNavigate();
   const { candidates, updateCandidate } = useCandidates();
 
-  const [filters, setFilters] = useState(initialFilters);
+  const [filters, setFilters] = useState<FiltersState>({
+    degree: "All",
+    experience: "All",
+    role: "All",
+    department: "All",
+    status: "All",
+    technicalSkills: [],
+    certifications: [],
+    search: "",
+  });
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [candidateStatusMap, setCandidateStatusMap] = useState<{ [id: string]: string }>({});
   const [imageURLs, setImageURLs] = useState<{ [id: string]: string }>({});
@@ -122,33 +123,8 @@ export default function Candidates() {
             // Add to loading state
             setImageLoading(prev => new Set([...prev, candidate.id]));
 
-            // 1. First try to get candidate's specific avatar (from CV upload)
-            if (candidate.avatar) {
-              try {
-                // Check if it's already a full URL (from CV upload)
-                if (candidate.avatar.startsWith('http')) {
-                  // Validate the URL before using it
-                  const isValid = await validateImageUrl(candidate.avatar);
-                  if (isValid) {
-                    imageUrl = candidate.avatar;
-                    console.log(`Found valid direct URL for candidate ${candidate.id}:`, imageUrl);
-                  } else {
-                    console.warn(`Invalid direct URL for candidate ${candidate.id}:`, candidate.avatar);
-                  }
-                } else {
-                  // It's a file path, try to get download URL
-                  const imageRef = ref(storage, `avatars/${candidate.avatar}`);
-                  imageUrl = await getDownloadURL(imageRef);
-                  console.log(`Found Firebase URL for candidate ${candidate.id}:`, imageUrl);
-                }
-              } catch (error) {
-                console.error(`Error fetching candidate avatar for ${candidate.id}:`, error);
-                // Continue to try user profile image
-              }
-            }
-
-            // 2. If no candidate avatar or it failed, try to get user profile image
-            if (!imageUrl && candidate.userId) {
+            // Only use the user's profile image
+            if (candidate.userId) {
               console.log(`No avatar found for candidate ${candidate.id}, trying user profile image for userId: ${candidate.userId}`);
               try {
                 // First try to get user type from user_types collection
@@ -234,9 +210,67 @@ export default function Candidates() {
     setFilters({ ...filters, [e.target.name]: e.target.value });
   };
 
+  // Only search input is shown in the UI now
+
   const resetFilters = () => {
-    setFilters(initialFilters);
+    setFilters({
+      degree: "All",
+      experience: "All",
+      role: "All",
+      department: "All",
+      status: "All",
+      technicalSkills: [],
+      certifications: [],
+      search: "",
+    });
   };
+
+  // Dynamic filter options derived from data
+  const {
+    degreeOptions,
+    experienceOptions,
+    roleOptions,
+    departmentOptions,
+    statusOptions,
+    skillOptions,
+    certificationOptions,
+  } = useMemo(() => {
+    const unique = <T extends string>(arr: (T | undefined)[]) => {
+      return Array.from(
+        new Set(
+          arr
+            .filter((v): v is T => Boolean(v))
+            .map((v) => v!.toString().trim())
+            .filter(Boolean)
+        )
+      );
+    };
+
+    const degrees = unique(candidates.map((c) => c.education));
+    const roles = unique(candidates.map((c) => c.role));
+    const departments = unique(candidates.map((c) => c.department));
+    const statuses = unique(candidates.map((c) => c.status));
+    const skills = unique(
+      candidates.flatMap((c) => (c.skills && c.skills.length ? c.skills : []))
+    );
+    const certs = unique(
+      candidates.flatMap((c) =>
+        c.certifications && c.certifications.length ? c.certifications : []
+      )
+    );
+
+    return {
+      degreeOptions: ["All", ...degrees],
+      experienceOptions: ["All", "1 year", "2 years", "3 years", "5+ years"],
+      roleOptions: ["All", ...roles],
+      departmentOptions: ["All", ...departments],
+      statusOptions: ["All", ...statuses],
+      skillOptions: skills,
+      certificationOptions: certs,
+    };
+  }, [candidates]);
+
+  // Count not needed when only search is visible
 
   const toggleExpand = (id: string) => {
     const newSet = new Set(expandedRows);
@@ -264,32 +298,91 @@ export default function Candidates() {
     }
   };
 
-  // More lenient filter function
+  // Enhanced filter function
   const matchesFilter = (candidate: Candidate) => {
-    // If all filters are "All", show all candidates
-    if (Object.values(filters).every(filter => filter === "All")) {
-      return true;
-    }
+    // Degree
+    const degreeMatch =
+      filters.degree === "All" ||
+      (candidate.education &&
+        candidate.education.toLowerCase().includes(filters.degree.toLowerCase()));
 
-    // Check each filter only if it's not "All"
-    const degreeMatch = filters.degree === "All" || 
-      (candidate.education && candidate.education.toLowerCase().includes(filters.degree.toLowerCase()));
-    
-    const experienceMatch = filters.experience === "All" || 
-      (candidate.experience && candidate.experience.toLowerCase().includes(filters.experience.toLowerCase()));
-    
-    const technicalSkillsMatch = filters.technicalSkills === "All" || 
-      (candidate.skills && candidate.skills.some(skill => 
-        skill.toLowerCase().includes(filters.technicalSkills.toLowerCase())
-      ));
-    
-    const previousJobMatch = filters.previousJob === "All" || 
-      (candidate.role && candidate.role.toLowerCase().includes(filters.previousJob.toLowerCase()));
-    
-    const certificationsMatch = filters.certifications === "All" || 
-      (candidate.rawText && candidate.rawText.toLowerCase().includes(filters.certifications.toLowerCase()));
+    // Experience (parse first number; '5+ years' => >=5)
+    const experienceMatch = (() => {
+      if (filters.experience === "All") return true;
+      if (!candidate.experience) return false;
+      const selected = filters.experience;
+      const num = parseInt((candidate.experience.match(/\d+/)?.[0] || "0"), 10);
+      if (selected.startsWith("5+")) return num >= 5;
+      const selectedNum = parseInt(selected, 10);
+      return num >= selectedNum; // treat as at least
+    })();
 
-    return degreeMatch && experienceMatch && technicalSkillsMatch && previousJobMatch && certificationsMatch;
+    // Role
+    const roleMatch =
+      filters.role === "All" ||
+      (candidate.role &&
+        candidate.role.toLowerCase().includes(filters.role.toLowerCase()));
+
+    // Department
+    const departmentMatch =
+      filters.department === "All" ||
+      (candidate.department &&
+        candidate.department.toLowerCase() === filters.department.toLowerCase());
+
+    // Status
+    const statusMatch =
+      filters.status === "All" ||
+      (candidate.status &&
+        candidate.status.toLowerCase() === filters.status.toLowerCase());
+
+    // Technical skills (ANY of selected)
+    const technicalSkillsMatch =
+      filters.technicalSkills.length === 0 ||
+      (candidate.skills &&
+        candidate.skills.some((s) =>
+          filters.technicalSkills.some(
+            (sel) => s.toLowerCase() === sel.toLowerCase()
+          )
+        ));
+
+    // Certifications (ANY of selected)
+    const certificationsMatch =
+      filters.certifications.length === 0 ||
+      (candidate.certifications &&
+        candidate.certifications.some((c) =>
+          filters.certifications.some(
+            (sel) => c.toLowerCase() === sel.toLowerCase()
+          )
+        ));
+
+    // Search term across multiple fields
+    const search = filters.search.trim().toLowerCase();
+    const searchMatch =
+      search.length === 0 ||
+      [
+        candidate.name,
+        candidate.email,
+        candidate.phone,
+        candidate.role,
+        candidate.department,
+        candidate.experience,
+        candidate.education,
+        candidate.rawText,
+        ...(candidate.skills || []),
+      ]
+        .filter(Boolean)
+        .some((v) => String(v).toLowerCase().includes(search));
+
+    return (
+      degreeMatch &&
+      experienceMatch &&
+      roleMatch &&
+      departmentMatch &&
+      statusMatch &&
+      technicalSkillsMatch &&
+      certificationsMatch &&
+      searchMatch
+    );
   };
 
   const HandleLogout = () => {
@@ -307,38 +400,24 @@ export default function Candidates() {
 
   // Helper function to render avatar
   const renderAvatar = (candidate: Candidate) => {
-    const isLoading = imageLoading.has(candidate.id);
     const hasImageUrl = Boolean(imageURLs[candidate.id]);
 
-    if (isLoading) {
-      return (
-        <div className="w-12 h-12 rounded-full bg-gray-200 flex items-center justify-center border-2 border-gray-200">
-          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500"></div>
-        </div>
-      );
-    }
-
-    if (hasImageUrl) {
+    if (hasImageUrl && !imageErrors.has(candidate.id)) {
       return (
         <img
           src={imageURLs[candidate.id]}
           alt={candidate.name}
           className="w-12 h-12 rounded-full object-cover border-2 border-gray-200"
           onError={(e) => {
-            console.log(`Image failed to load for candidate ${candidate.id}, using fallback avatar`);
-            e.currentTarget.onerror = null; // prevent infinite loop
-            e.currentTarget.src = '/fallback-avatar.png';
+            console.log(`Image failed to load for candidate ${candidate.id}, hiding avatar`);
+            setImageErrors(prev => new Set([...prev, candidate.id]));
           }}
         />
       );
     }
 
-    // No image URL available: show placeholder initials
-    return (
-      <div className="w-12 h-12 rounded-full bg-blue-500 text-white flex items-center justify-center font-semibold text-sm border-2 border-gray-200">
-        {getInitials(candidate.name)}
-      </div>
-    );
+    // No image available: render nothing
+    return null;
   };
 
   return (
@@ -369,35 +448,21 @@ export default function Candidates() {
           </div>
         </div>
 
-        {/* Filters */}
-        <div className="flex flex-wrap items-end gap-6 mb-6">
-          {Object.entries(filterOptions).map(([key, options]) => (
-            <div key={key} className="flex flex-col">
-              <label className="text-sm text-gray-500 font-medium capitalize mb-1">
-                {key.replace(/([A-Z])/g, " $1")}
-              </label>
-              <select
-                name={key}
-                value={(filters as any)[key]}
-                onChange={handleFilterChange}
-                className="rounded-full border border-gray-300 px-4 py-1.5 text-sm text-gray-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
-              >
-                {options.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ))}
-              </select>
+        {/* Filters: only search */}
+        <div className="mb-6">
+          <div className="bg-white border rounded-xl shadow-sm p-4">
+            <div className="relative max-w-xl">
+              <SearchIcon size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                type="text"
+                name="search"
+                value={filters.search}
+                onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+                placeholder="Search by name, email, role, skills..."
+                className="w-full rounded-full border border-gray-300 pl-9 pr-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-200"
+              />
             </div>
-          ))}
-
-          {/* Reset Filters Button */}
-          <button
-            onClick={resetFilters}
-            className="mt-5 text-sm px-4 py-2 rounded-full bg-gray-100 border hover:bg-gray-200 text-gray-700"
-          >
-            Reset Filters
-          </button>
+          </div>
         </div>
 
         {/* Debug information */}

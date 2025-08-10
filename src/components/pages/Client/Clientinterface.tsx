@@ -171,15 +171,20 @@ const ClientInterface = () => {
         <div className="mb-6">
           <h2 className="text-xl font-semibold mb-4">Profile Photo</h2>
           <div className="flex items-center gap-4">
-            <img
-              src={
-                profileImage
-                  ? URL.createObjectURL(profileImage)
-                  : profileImageUrl || "https://via.placeholder.com/100"
-              }
-              alt="Profile"
-              className="w-24 h-24 rounded-full object-cover border-2 border-gray-200"
-            />
+            {profileImage ? (
+              <img
+                src={URL.createObjectURL(profileImage)}
+                alt="Profile"
+                className="w-24 h-24 rounded-full object-cover border-2 border-gray-200"
+              />
+            ) : profileImageUrl ? (
+              <img
+                src={profileImageUrl}
+                alt="Profile"
+                className="w-24 h-24 rounded-full object-cover border-2 border-gray-200"
+                onError={() => setProfileImageUrl("")}
+              />
+            ) : null}
             <div>
               <input
                 type="file"
